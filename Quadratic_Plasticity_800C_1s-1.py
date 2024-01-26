@@ -6,6 +6,8 @@ import time
 from sys import argv
 from scipy.stats import qmc
 
+print(argv)
+
 c0_min = float(argv[1])
 c0_max = float(argv[2])
 c1_min = float(argv[3])
@@ -20,7 +22,7 @@ c5_min = float(argv[11])
 c5_max = float(argv[12])
 runs = int(argv[13])
 friction = float(argv[14])
-conductance = float(argv[15])
+conductance = [float(argv[15]), argv[16]]
 power = float(argv[16])
 
 subprocess.run(['pwd'])
