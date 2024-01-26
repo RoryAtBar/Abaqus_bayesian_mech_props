@@ -23,7 +23,7 @@ c5_max = float(argv[12])
 runs = int(argv[13])
 friction = float(argv[14])
 conductance = [float(argv[15]), argv[16]]
-power = float(argv[16])
+power = float(argv[17])
 
 subprocess.run(['pwd'])
 #Version 2 uses a modified version of read_Force_PEEQ_NT11_barrelling based on a macro
@@ -41,36 +41,42 @@ def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file
     Run_Abaqus = subprocess.run(['abq2022','job=sub_script_check', 'input='+original_inp_file, 'interactive'])
     read_odb_into_text_file = subprocess.run(['abq2022','cae', 'noGUI=read_Force_PEEQ_NT11_barrelling_forcemac.py'])
     subprocess.run(['ls','-l'])
-    with open('Force_sample_set1.rpt','r') as f:
-        force_vals1=f.read().split('\n')[:-1]
-    f.close()
-    with open('Force_sample_set2.rpt','r') as f:
-        force_vals2=f.read().split('\n')[:-1]
-    f.close()
+    try:
+        with open('Force_sample_set1.rpt','r') as f:
+            force_vals1=f.read().split('\n')[:-1]
+        f.close()
+        with open('Force_sample_set2.rpt','r') as f:
+            force_vals2=f.read().split('\n')[:-1]
+        f.close()
     #compression_force = np.zeros(len(force_vals))
-    with open('PEEQ_output.rpt','r') as f:
-        PEEQ_vals=f.read().split('\n')[:-1]
-    f.close()
-    with open('outer_sample_xcoords.rpt','r') as f:
-        barrelling_profile=f.read().split('\n')[:-1]
-    f.close()
-    with open('NT11.rpt','r') as f:
-        NT11=f.read().split('\n')[:-1]
-    f.close()    
-    #for i, force in enumerate(force_vals):
-    #    compression_force[i] = float(force)
-    #print('abaqus function completed')
-    file_count = str(count)
-    results_df.at[count,'Force Results1'] = force_vals1
-    results_df.at[count,'Force Results2'] = force_vals2
-    results_df.at[count,'Barrelling Profile'] = barrelling_profile
-    results_df.at[count,'PEEQ Results'] = PEEQ_vals
-    results_df.at[count,'Temperature profile'] = NT11
-    subprocess.run(['mv','PEEQ_output.rpt',f'PEEQ_output{file_count}.rpt'])
-    subprocess.run(['mv','outer_sample_xcoords.rpt',f'outer_sample_xcoords{file_count}.rpt'])
-    subprocess.run(['mv','NT11.rpt',f'NT11_{file_count}.rpt'])
-    subprocess.run(['mv','Force_sample_set1.rpt',f'Force_sample_set1{file_count}.rpt'])
-    subprocess.run(['mv','Force_sample_set2.rpt',f'Force_sample_set2{file_count}.rpt'])
+        with open('PEEQ_output.rpt','r') as f:
+            PEEQ_vals=f.read().split('\n')[:-1]
+        f.close()
+        with open('outer_sample_xcoords.rpt','r') as f:
+            barrelling_profile=f.read().split('\n')[:-1]
+        f.close()
+        with open('NT11.rpt','r') as f:
+            NT11=f.read().split('\n')[:-1]
+        f.close()    
+        #for i, force in enumerate(force_vals):
+        #    compression_force[i] = float(force)
+        #print('abaqus function completed')
+        file_count = str(count)
+        results_df.at[count,'Force Results1'] = force_vals1
+        results_df.at[count,'Force Results2'] = force_vals2
+        results_df.at[count,'Barrelling Profile'] = barrelling_profile
+        results_df.at[count,'PEEQ Results'] = PEEQ_vals
+        results_df.at[count,'Temperature profile'] = NT11
+        subprocess.run(['mv','PEEQ_output.rpt',f'PEEQ_output{file_count}.rpt'])
+        subprocess.run(['mv','outer_sample_xcoords.rpt',f'outer_sample_xcoords{file_count}.rpt'])
+        subprocess.run(['mv','NT11.rpt',f'NT11_{file_count}.rpt'])
+        subprocess.run(['mv','Force_sample_set1.rpt',f'Force_sample_set1{file_count}.rpt'])
+        subprocess.run(['mv','Force_sample_set2.rpt',f'Force_sample_set2{file_count}.rpt'])
+    except(FileNotFoundError()):
+        results_df.at[count,'Force Results1'] = float('NaN')
+        results_df.at[count,'Force Results2'] = float('NaN')
+        results_df.at[count,'Barrelling Profile'] = float('NaN')
+        results_df.at[count,'PEEQ Results'] = float('NaN')
     if np.random.rand() > 0.9:
         subprocess.run(['mv','sub_script_check.odb',f'{file_count}.odb'])
         subprocess.run(['cp','Quad_plasticity.inp',f'{file_count}.inp'])
@@ -151,7 +157,7 @@ def Extract_plastic_data(inp_file):
     #finds the index numbers of the lines where the plasticity data starts and ends
     Titanium_sample = False
     for n, line in enumerate(inp_file):
-        if line == '** Titanium Sample':
+        if line == '**  Titanium Sample':
             Titanium_sample = True
         if line == '*Plastic, rate=0.' and Titanium_sample:
             Plastic_start = n
@@ -240,7 +246,7 @@ def generate_input_file_quadratic_surf(parameters, inp_file, material_data_txt):
     #print(new_plasticity_data==plasticity_data_table)
     #print(list_of_material_coefficients)
     new_plasticity_data_in_inp_format = convert_table_back_to_inp(new_plasticity_data)
-    new_inp=feed_modified_table_into_inp(new_plasticity_data_in_inp_format, inp_data, plastic_start, plastic_end, 'quadratic_plasticity')
+    new_inp=feed_modified_table_into_inp(new_plasticity_data_in_inp_format, inp_data, plastic_start, plastic_end, 'Quad_plasticity')
     return new_inp
 
 def convert_table_back_to_inp(plastic_data_table):
@@ -260,7 +266,7 @@ def convert_table_back_to_inp(plastic_data_table):
             i += 1
     return text_inp
 
-Titanium_plasticity_data = 'Jmat_Pro_titanium_plasticity_data.txt'
+Titanium_plasticity_data = 'Patryk_mat_data.txt'
 hypercube_obj = qmc.LatinHypercube(d=6)
 samples = hypercube_obj.random(runs)
 
