@@ -1,0 +1,41 @@
+#!/bin/bash --login
+
+# SGE options (whose lines must begin with #$)
+
+#$ -cwd               # Run the job in the current directory 
+source activate Abaqus_PYMC2
+module load apps/binapps/abaqus/2022
+#source $ABAQUS_HOME/liccheck.sh
+
+#!/bin/sh
+OUTPUTFILE="SFCP_800C_1s-1_importedodbs_cond0-1500"
+MAINSCRIPT="surrogate_Abaqus_3_800C_1s-1.py"
+IMPORTTEMPPROFILE="Abaqus_5_min_heatup/800150C_heatup22.odb"
+MODEL="800C_1s-1_setup.inp"
+PLASTICITYDATA="Patryk_mat_data.txt"
+ODBREADER="read_Force_PEEQ_NT11_barrelling_forcemac.py"
+SUBFOLDER="Abaqus/Friction_conductance/"
+C0MIN="0"
+C0MAX="1"
+C1MIN="0"
+C1MAX="1"
+C2MIN="0"
+C2MAX="1"
+C3MIN="0"
+C3MAX="1"
+C4MIN="0"
+C4MAX="1"
+C5MIN="0"
+C5MAX="1"
+RUNS="5"
+FRICTION = "0.7"
+CONDUCTANCE = "1500"
+POWER = "1e6"
+mkdir "/mnt/iusers01/jf01/w10944rb/scratch/${OUTPUTFILE}"
+cp "/mnt/iusers01/jf01/w10944rb/${IMPORTTEMPPROFILE}" "/mnt/iusers01/jf01/w10944rb/scratch/${OUTPUTFILE}"
+done
+cp "/mnt/iusers01/jf01/w10944rb/${SUBFOLDER}${ODBREADER}" "/mnt/iusers01/jf01/w10944rb/scratch/${OUTPUTFILE}"
+cp "/mnt/iusers01/jf01/w10944rb/Abaqus/${PLASTICITYDATA}"  "/mnt/iusers01/jf01/w10944rb/scratch/${OUTPUFILE}"
+cp "/mnt/iusers01/jf01/w10944rb/${SUBFOLDER}${MODEL}"  "/mnt/iusers01/jf01/w10944rb/scratch/${OUTPUTFILE}/Quad_plasticity.inp"
+cd $OUTPUTFILE
+python "/mnt/iusers01/jf01/w10944rb/${SUBFOLDER}${MAINSCRIPT} ${C0MIN} ${C0MAX} ${C1MIN} ${C1MAX} ${C2MIN} ${C2MAX} ${C3MIN} {C3MAX} {C4MIN} {C4MAX} {C5MIN} {C5MAX} {RUNS}"  
