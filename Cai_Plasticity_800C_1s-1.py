@@ -8,22 +8,18 @@ from scipy.stats import qmc
 
 print(argv)
 
-c0_min = float(argv[1])
-c0_max = float(argv[2])
-c1_min = float(argv[3])
-c1_max = float(argv[4])
-c2_min = float(argv[5])
-c2_max = float(argv[6])
-c3_min = float(argv[7])
-c3_max = float(argv[8])
-c4_min = float(argv[9])
-c4_max = float(argv[10])
-c5_min = float(argv[11])
-c5_max = float(argv[12])
-runs = int(argv[13])
-friction = float(argv[14])
-conductance = [float(argv[15]), argv[16]]
-power = float(argv[17])
+alpha_min = float(argv[1])
+alpha_max = float(argv[2])
+n_param_min = float(argv[3])
+n_param_max = float(argv[4])
+Q_min = float(argv[5])
+Q_max = float(argv[6])
+ln_A_min = float(argv[7])
+ln_A_max = float(argv[8])
+runs = int(argv[9])
+friction = float(argv[10])
+conductance = [float(argv[11]), argv[12]]
+power = float(argv[13])
 
 subprocess.run(['pwd'])
 #Version 2 uses a modified version of read_Force_PEEQ_NT11_barrelling based on a macro
@@ -224,12 +220,12 @@ def modify_array_quad_surf(list_of_coeffs, strains, plastic_data_tabled):
                 if float(key[11:]) == 0:
                     log_SR = 0# log of strain rate
                 else:
-                    log_SR = np.log10(float(key[11:]))
+                    log_SR = np.log(float(key[11:]))
                 S = plastic_data_tabled[key][i][1] #strain
                 T = plastic_data_tabled[key][i][2] + 273#Temperature
-                c0, c1, c2, c3, c4, c5 = list_of_coeffs
-                log_10_stress = c0 + c1*T + c2*log_SR + c3*T*log_SR + c4*(T**2) + c5*(log_SR**2)
-                new_plastic_data[key][i][0] = 10**log_10_stress
+                alph, n, Qu, logA = list_of_coeffs
+                stress = np.arcsinh(np.exp(((log_SR/n)+(Qu/(n*8.314*T))-(logA/n))))/alph
+                new_plastic_data[key][i][0] = stress
     return new_plastic_data
             
 
@@ -267,30 +263,27 @@ def convert_table_back_to_inp(plastic_data_table):
     return text_inp
 
 Titanium_plasticity_data = 'Patryk_mat_data.txt'
-hypercube_obj = qmc.LatinHypercube(d=6)
+hypercube_obj = qmc.LatinHypercube(d=4)
 samples = hypercube_obj.random(runs)
 
-lower_bounds = [c0_min,c1_min,c2_min,c3_min,c4_min,c5_min]
-upper_bounds = [c0_max,c1_max,c2_max,c3_max,c4_max,c5_max]
+lower_bounds = [alpha_min,n_param_min,Q_min,ln_A_min]
+upper_bounds = [alpha_max,n_param_max,Q_max,ln_A_max]
 
 scaled_samples = qmc.scale(samples, lower_bounds, upper_bounds)
 
 starting_time = time.time()
 
-samples_per_param = 15
-no_samples = samples_per_param**2
+
 #results = {'power input': np.zeros(no_samples) 'coefficient of friction':np.zeros(no_samples), 'platen sample interface conductance':np.zeros(no_samples),'Force Results':np.zeros(no_samples)}
-results = {'C0':np.zeros(no_samples), 
-           'C1':np.zeros(no_samples), 
-           'C2':np.zeros(no_samples), 
-           'C3':np.zeros(no_samples), 
-           'C4':np.zeros(no_samples),
-           'C5':np.zeros(no_samples),
-           'Force Results1':np.zeros(no_samples), 
-           'Force Results2':np.zeros(no_samples),
-           'PEEQ Results':np.zeros(no_samples), 
-           'Barrelling Profile':np.zeros(no_samples),
-           'Temperature profile':np.zeros(no_samples)}
+results = {'Alpha':np.zeros(runs), 
+           'n':np.zeros(runs), 
+           'Q':np.zeros(runs), 
+           'ln_A':np.zeros(runs), 
+           'Force Results1':np.zeros(runs), 
+           'Force Results2':np.zeros(runs),
+           'PEEQ Results':np.zeros(runs), 
+           'Barrelling Profile':np.zeros(runs),
+           'Temperature profile':np.zeros(runs)}
 results_df = pd.DataFrame(results)
 results_df['Force Results1'] = results_df['Force Results1'].astype(object)
 results_df['Force Results2'] = results_df['Force Results2'].astype(object)
@@ -307,12 +300,10 @@ original_inp_file = 'Quad_plasticity.inp'
 generate_input_file_friction_conductance_power([friction,conductance,power], original_inp_file)
 
 for n, list_of_material_coefficients in enumerate(scaled_samples):
-    results_df.loc[n,'C0'] = list_of_material_coefficients[0]
-    results_df.loc[n,'C1'] = list_of_material_coefficients[1]
-    results_df.loc[n,'C2'] = list_of_material_coefficients[2]
-    results_df.loc[n,'C3'] = list_of_material_coefficients[3]
-    results_df.loc[n,'C4'] = list_of_material_coefficients[4]
-    results_df.loc[n,'C5'] = list_of_material_coefficients[5]
+    results_df.loc[n,'Alpha'] = list_of_material_coefficients[0]
+    results_df.loc[n,'n'] = list_of_material_coefficients[1]
+    results_df.loc[n,'Q'] = list_of_material_coefficients[2]
+    results_df.loc[n,'ln_A'] = list_of_material_coefficients[3]
     call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file, output_directory,n)
     
 
