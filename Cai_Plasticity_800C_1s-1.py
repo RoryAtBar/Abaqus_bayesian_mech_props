@@ -37,6 +37,7 @@ def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file
     Run_Abaqus = subprocess.run(['abq2022','job=sub_script_check', 'input='+original_inp_file, 'interactive'])
     read_odb_into_text_file = subprocess.run(['abq2022','cae', 'noGUI=read_Force_PEEQ_NT11_barrelling_forcemac.py'])
     subprocess.run(['ls','-l'])
+    file_count = str(count)
     try:
         with open('Force_sample_set1.rpt','r') as f:
             force_vals1=f.read().split('\n')[:-1]
@@ -57,7 +58,6 @@ def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file
         #for i, force in enumerate(force_vals):
         #    compression_force[i] = float(force)
         #print('abaqus function completed')
-        file_count = str(count)
         results_df.at[count,'Force Results1'] = force_vals1
         results_df.at[count,'Force Results2'] = force_vals2
         results_df.at[count,'Barrelling Profile'] = barrelling_profile
