@@ -127,8 +127,16 @@ def Flow_stress_model(strain,
         * np.exp(-2 * B * strain))
     X_vals = [(1 - np.exp(-a*((s-peak_strain) ** b))) for s in strain if s > peak_strain]
     X = np.zeros(len(strain))
-    X[-len(X_vals):] = X_vals
+    with open("output.txt", "a") as f:
+        f.write(f"with initial_stress={initial_stress}, Q={Q}, m_α={m_α}, m_β={m_β}, n_α={n_α}, n_β={n_β}, Q_β={Q_β}, B={B}, a={a}, b={b}\n")
+        f.write(f"X_vals: {X_vals}")
+    f.close()
+    if X_vals: #Carries out the next operation if the list is not empty
+        X[-len(X_vals):] = X_vals
     flow_stress = (sig1-X*(sig1-steady_state_stress))
+    with open("output.txt", "a") as f:
+        f.write(f"Flow stress outputs: {flow_stress}\n")
+    f.close()
     return flow_stress
 
 
@@ -140,12 +148,12 @@ def Abaqus_plastic_table_AFRC(params,
                          strain=np.linspace(0,2,201), 
                          plastic_rate=[0.001,0.01,0.1,1.0,10.0],
                          Temperature = np.linspace(600,1100,11)):
-    Out = ""
+    Out = []
     for SR in plastic_rate:
-        if SR == np.min(SR):
-            Out += "*Plastic, rate=0.\n"
+        if SR == np.min(plastic_rate):
+            Out.append("*Plastic, rate=0.")
         else:
-            Out += f"*Plastic, rate={SR}\n"
+            Out.append(f"*Plastic, rate={SR}")
         for Temp_C in Temperature:
             fs = model_wrapper(strain, params, alloy, Temp_C, SR, βtransus)
             flow_curve = np.ones((len(strain),3))
@@ -153,7 +161,7 @@ def Abaqus_plastic_table_AFRC(params,
             flow_curve[:,1] = strain
             flow_curve[:,2] *= Temp_C
             for row in flow_curve:
-                Out += f"{row[0]:.2f}, {row[1]:.2f}, {row[2]}\n"
+                Out.append(f"{row[0]:.2f}, {row[1]:.2f}, {row[2]}")
     return Out
 
 
@@ -339,7 +347,7 @@ def modify_array_constitutive_flow_stress(list_of_coeffs, strains, plastic_data_
 #Main function for generating inp files. This function organises the above functions.
 #It takes the location of the inp file, and a seperate file with a plasticity data lookup table in the 
 #same format as the inp file, reads them and feeds them through all of the above functions in order.
-def generate_input_file_AFRC_plasticity(parameters, inp_file, Temp_C, SR, βtransus):
+def generate_input_file_AFRC_plasticity(parameters, inp_file, alloy, Temp_C, SR, βtransus):
     inp_data = open(inp_file).read().split('\n')
     plastic_data, plastic_start, plastic_end = Extract_plastic_data(inp_data)
     new_plasticity_data = Abaqus_plastic_table_AFRC(parameters, 
@@ -366,8 +374,7 @@ def convert_table_back_to_inp(plastic_data_table):
             i += 1
     return text_inp
 
-Titanium_plasticity_data = 'Patryk_mat_data.txt'
-hypercube_obj = qmc.LatinHypercube(d=10)
+hypercube_obj = qmc.LatinHypercube(d=11)
 samples = hypercube_obj.random(runs)
 
 lower_bounds = [initial_stress_min, 
@@ -387,13 +394,19 @@ upper_bounds = [initial_stress_max,
                 m_α_max,
                 m_β_max,
                 n_α_max,
-                n_β_min,
+                n_β_max,
                 Q_β_max,
                 Q_α_max,
                 B_max,
                 a_max,
                 b_max]
-
+difference = np.array(upper_bounds)-np.array(lower_bounds)
+with open("output.txt","w") as f:
+    f.write(f"input args: {argv}\n")
+    f.write(f"Lower bounds: {lower_bounds}\n")
+    f.write(f"Upper bounds: {upper_bounds}\n")
+    f.write(f"difference: {difference}\n")
+f.close()
 scaled_samples = qmc.scale(samples, lower_bounds, upper_bounds)
 
 starting_time = time.time()
@@ -437,13 +450,14 @@ for n, list_of_material_coefficients in enumerate(scaled_samples):
     results_df.loc[n,'m_α'] = list_of_material_coefficients[2]
     results_df.loc[n,'m_β'] = list_of_material_coefficients[3]
     results_df.loc[n,'n_α'] = list_of_material_coefficients[4]
-    results_df.loc[n,'n_β'] = list_of_material_coefficients[6]
-    results_df.loc[n,'Q_β'] = list_of_material_coefficients[7]
-    results_df.loc[n,'Q_α'] = list_of_material_coefficients[8]
-    results_df.loc[n,'B'] = list_of_material_coefficients[9]
-    results_df.loc[n,'a'] = list_of_material_coefficients[10]
-    results_df.loc[n,'b'] = list_of_material_coefficients[11]
+    results_df.loc[n,'n_β'] = list_of_material_coefficients[5]
+    results_df.loc[n,'Q_β'] = list_of_material_coefficients[6]
+    results_df.loc[n,'Q_α'] = list_of_material_coefficients[7]
+    results_df.loc[n,'B'] = list_of_material_coefficients[8]
+    results_df.loc[n,'a'] = list_of_material_coefficients[9]
+    results_df.loc[n,'b'] = list_of_material_coefficients[10]
     call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file, output_directory, n, alloy, Temp_C , SR, βtransus)
+    results_df.to_pickle('AFRC_plasticity.pkl')
     
 
 

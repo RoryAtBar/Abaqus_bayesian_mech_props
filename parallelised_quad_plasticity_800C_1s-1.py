@@ -1,34 +1,80 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Feb 28 13:38:59 2024
+
+@author: w10944rb
+"""
+
 import numpy as np
 import pandas as pd
 import subprocess
 import os
 import time
 from sys import argv
-from scipy.stats import qmc
 
-print(argv)
+index = int(argv[1])
 
-c0_min = float(argv[1])
-c0_max = float(argv[2])
-c1_min = float(argv[3])
-c1_max = float(argv[4])
-c2_min = float(argv[5])
-c2_max = float(argv[6])
-c3_min = float(argv[7])
-c3_max = float(argv[8])
-c4_min = float(argv[9])
-c4_max = float(argv[10])
-c5_min = float(argv[11])
-c5_max = float(argv[12])
-runs = int(argv[13])
-friction = float(argv[14])
-conductance = [float(argv[15]), argv[16]]
-power = float(argv[17])
+results_df = pd.read_pickle('Quad_plasticity.pkl')
+
+def model_wrapper(strain, params, SR, T):
+    #This function serves as a wrapper for the parameters, so that the flow 
+    #stress model can be easily copied into other scripts where variable
+    #parameters are distinguished
+    C0, C1, C2, C3, C4, C5 = params
+    flow_stress = Flow_stress_model(strain,
+                      C0,
+                      C1,
+                      C2,
+                      C3,
+                      C4,
+                      C5,
+                      SR,
+                      T)
+    return flow_stress
+
+def Flow_stress_model(strain,
+                      C0,
+                      C1,
+                      C2,
+                      C3,
+                      C4,
+                      C5,
+                      SR,
+                      T):
+    log_SR = np.log10(SR)
+    stress = C0 + C1*T + C2*log_SR + C3*T*log_SR + C4*(T**2) + C5*(log_SR**2)
+    flow_stress = np.ones(len(strain)) * stress
+    return flow_stress
+
+
+
+def Abaqus_plastic_table_quadratic(params,
+                         strain=np.linspace(0,2,201), 
+                         plastic_rate=[0.001,0.01,0.1,1.0,10.0],
+                         Temperature = np.linspace(600,1100,11)):
+    Out = []
+    for SR in plastic_rate:
+        if SR == np.min(plastic_rate):
+            Out.append("*Plastic, rate=0.")
+        else:
+            Out.append(f"*Plastic, rate={SR}")
+        for Temp_C in Temperature:
+            fs = model_wrapper(strain, params, SR, Temp_C)
+            flow_curve = np.ones((len(strain),3))
+            flow_curve[:,0] = fs
+            flow_curve[:,1] = strain
+            flow_curve[:,2] *= Temp_C
+            for row in flow_curve:
+                Out.append(f"{row[0]:.2f}, {row[1]:.2f}, {row[2]}")
+    return Out
+
+
 
 subprocess.run(['pwd'])
 #Version 2 uses a modified version of read_Force_PEEQ_NT11_barrelling based on a macro
 #Version 3 imports a different odb for each value of platen conductance
-def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file, output_directory,count):
+def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file, output_directory,count,SR, Temp_C):
     #This function calls the 'generate_input_file' function to create a model with randomised parameters
     #It's purpose is is call abaqus with the compression test model, then call abaqus cae to interpret the
     #output data base. The sub process generates a text file with force values vs time step called 'force_output.txt'
@@ -37,10 +83,11 @@ def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file
     #string locating the inp file, and output directory is where the .odb file is to be placed
     #print('abaqus function called')
     output_filename='Doesitwork'
-    input_file = generate_input_file_quadratic_surf(list_of_material_coefficients, original_inp_file, Titanium_plasticity_data)
+    input_file = generate_input_file_quadratic_plasticity(list_of_material_coefficients, original_inp_file, SR, Temp_C)
     Run_Abaqus = subprocess.run(['abq2022','job=sub_script_check', 'input='+original_inp_file, 'interactive'])
     read_odb_into_text_file = subprocess.run(['abq2022','cae', 'noGUI=read_Force_PEEQ_NT11_barrelling_forcemac.py'])
     subprocess.run(['ls','-l'])
+    file_count = str(count)
     try:
         with open('Force_sample_set1.rpt','r') as f:
             force_vals1=f.read().split('\n')[:-1]
@@ -48,7 +95,7 @@ def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file
         with open('Force_sample_set2.rpt','r') as f:
             force_vals2=f.read().split('\n')[:-1]
         f.close()
-        #compression_force = np.zeros(len(force_vals))
+    #compression_force = np.zeros(len(force_vals))
         with open('PEEQ_output.rpt','r') as f:
             PEEQ_vals=f.read().split('\n')[:-1]
         f.close()
@@ -61,25 +108,24 @@ def call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file
         #for i, force in enumerate(force_vals):
         #    compression_force[i] = float(force)
         #print('abaqus function completed')
-        file_count = str(count)
         results_df.at[count,'Force Results1'] = force_vals1
         results_df.at[count,'Force Results2'] = force_vals2
         results_df.at[count,'Barrelling Profile'] = barrelling_profile
         results_df.at[count,'PEEQ Results'] = PEEQ_vals
         results_df.at[count,'Temperature profile'] = NT11
-        subprocess.run(['mv','PEEQ_output.rpt',f'PEEQ_output{count}.rpt'])
-        subprocess.run(['mv','outer_sample_xcoords.rpt',f'outer_sample_xcoords{count}.rpt'])
-        subprocess.run(['mv','NT11.rpt',f'NT11_{count}.rpt'])
-        subprocess.run(['mv','Force_sample_set1.rpt',f'Force_sample_set1{count}.rpt'])
-        subprocess.run(['mv','Force_sample_set2.rpt',f'Force_sample_set2{count}.rpt'])
+        subprocess.run(['mv','PEEQ_output.rpt',f'PEEQ_output{file_count}.rpt'])
+        subprocess.run(['mv','outer_sample_xcoords.rpt',f'outer_sample_xcoords{file_count}.rpt'])
+        subprocess.run(['mv','NT11.rpt',f'NT11_{file_count}.rpt'])
+        subprocess.run(['mv','Force_sample_set1.rpt',f'Force_sample_set1{file_count}.rpt'])
+        subprocess.run(['mv','Force_sample_set2.rpt',f'Force_sample_set2{file_count}.rpt'])
     except FileNotFoundError:
         results_df.at[count,'Force Results1'] = float('NaN')
         results_df.at[count,'Force Results2'] = float('NaN')
         results_df.at[count,'Barrelling Profile'] = float('NaN')
         results_df.at[count,'PEEQ Results'] = float('NaN')
-    if np.random.rand() > 0.9:
-        subprocess.run(['mv','sub_script_check.odb',f'{count}.odb'])
-        subprocess.run(['cp','Quad_plasticity.inp',f'{count}.inp'])
+    if np.random.rand() > 0.95:
+        subprocess.run(['mv','sub_script_check.odb',f'{file_count}.odb'])
+        subprocess.run(['cp','AFRC_plasticity.inp',f'{file_count}.inp'])
     subprocess.run(['rm','sub_script_check*'])
     #return compression_force
 
@@ -144,7 +190,7 @@ def generate_input_file_friction_conductance_power(parameters, inp_file):
 def model_sensitivity_lib_format(Friction_Coefficient,Sample_Platen_Thermal_Conductivity):
     #This function is to recycle existing code into the sensitivity library
     parameters = [Friction_Coefficient,Sample_Platen_Thermal_Conductivity]
-    inp_file = 'Quad_plasticity.inp'
+    inp_file = 'AFRC_plasticity.inp'
     output_directory = ''
     comp_force = call_abaqus_with_new_params(parameters, inp_file, output_directory)
     return comp_force
@@ -161,41 +207,11 @@ def Extract_plastic_data(inp_file):
             Titanium_sample = True
         if line == '*Plastic, rate=0.' and Titanium_sample:
             Plastic_start = n
-        if line == '*Specific Heat'  and Titanium_sample and Plastic_start > 0:
+        if line == '*Specific Heat' and Titanium_sample and Plastic_start > 0:
             Plastic_end = n
     return inp_file[Plastic_start:Plastic_end], Plastic_start, Plastic_end
 
-def convert_table_to_numbers(table):
-    #The plasticity data after being split into individual strain rates is passed to this function to 
-    #be converted into a numpy array
-    new_table = np.zeros((len(table),3))
-    for n, line in enumerate(table):
-        split_line = line.split(',')
-        new_table[n,0] = float(split_line[0])
-        new_table[n,1] = float(split_line[1])
-        new_table[n,2] = float(split_line[2])
-    return new_table
     
-def separate_plastic_table_by_strain_rate(plastic):
-    #After the plasticity data is read and split into lines, it is broken down into a dict with the strain
-    #rate as the key, converted to a numpy array of [flow stress, temperature, strain] under each strain rate
-    single_strain_rate_data = {}
-    strain_rate = None
-    first_line_given_strain_rate = 0
-    for n,line in enumerate(plastic):   
-        if (strain_rate == None) & (line[:15] == '*Plastic, rate='):
-            strain_rate = line[15:]
-            first_line_given_strain_rate = n+1
-        elif line[:15] == '*Plastic, rate=':
-            new_strain_rate = line[15:]
-            last_line_given_strain_rate = n-1
-            single_strain_rate_data['strain rate'+strain_rate]=convert_table_to_numbers(plastic[first_line_given_strain_rate:last_line_given_strain_rate])
-            strain_rate = new_strain_rate
-            first_line_given_strain_rate = n+1
-        elif n+2 > len(plastic):
-            last_line_given_strain_rate = n+1
-            single_strain_rate_data['strain rate'+strain_rate]=convert_table_to_numbers(plastic[first_line_given_strain_rate:last_line_given_strain_rate])
-    return single_strain_rate_data
 
 def feed_modified_table_into_inp(converted_new_plastic_data, old_inp_file, plastic_start, plastic_end, inp_filename):
     #Takes the randomised material data and inserts it into the compression model. Converted plastic data is the plasticity
@@ -215,7 +231,7 @@ def feed_modified_table_into_inp(converted_new_plastic_data, old_inp_file, plast
     new_file.close()
     return new_inp
 
-def modify_array_quad_surf(list_of_coeffs, strains, plastic_data_tabled):
+def modify_array_constitutive_flow_stress(list_of_coeffs, strains, plastic_data_tabled):
     keys = plastic_data_tabled.keys()
     new_plastic_data = plastic_data_tabled
     for i, s in enumerate(strains):
@@ -224,29 +240,23 @@ def modify_array_quad_surf(list_of_coeffs, strains, plastic_data_tabled):
                 if float(key[11:]) == 0:
                     log_SR = 0# log of strain rate
                 else:
-                    log_SR = np.log10(float(key[11:]))
+                    log_SR = np.log(float(key[11:]))
                 S = plastic_data_tabled[key][i][1] #strain
                 T = plastic_data_tabled[key][i][2] + 273#Temperature
-                c0, c1, c2, c3, c4, c5 = list_of_coeffs
-                log_10_stress = c0 + c1*T + c2*log_SR + c3*T*log_SR + c4*(T**2) + c5*(log_SR**2)
-                new_plastic_data[key][i][0] = log_10_stress
+                alph, n, Qu, logA = list_of_coeffs
+                stress = np.arcsinh(np.exp(((log_SR/n)+(Qu/(n*8.314*T))-(logA/n))))/alph
+                new_plastic_data[key][i][0] = stress
     return new_plastic_data
             
 
 #Main function for generating inp files. This function organises the above functions.
 #It takes the location of the inp file, and a seperate file with a plasticity data lookup table in the 
 #same format as the inp file, reads them and feeds them through all of the above functions in order.
-def generate_input_file_quadratic_surf(parameters, inp_file, material_data_txt):
+def generate_input_file_quadratic_plasticity(parameters, inp_file, SR, Temp_C,):
     inp_data = open(inp_file).read().split('\n')
-    input_plastic_data = open(material_data_txt).read().split('\n')
     plastic_data, plastic_start, plastic_end = Extract_plastic_data(inp_data)
-    plasticity_data_table = separate_plastic_table_by_strain_rate(input_plastic_data)
-    strains = list(set(plasticity_data_table['strain rate0.'][:,1]))
-    new_plasticity_data = modify_array_quad_surf(parameters, strains, plasticity_data_table)
-    #print(new_plasticity_data==plasticity_data_table)
-    #print(list_of_material_coefficients)
-    new_plasticity_data_in_inp_format = convert_table_back_to_inp(new_plasticity_data)
-    new_inp=feed_modified_table_into_inp(new_plasticity_data_in_inp_format, inp_data, plastic_start, plastic_end, 'Quad_plasticity')
+    new_plasticity_data = Abaqus_plastic_table_quadratic(parameters)
+    new_inp=feed_modified_table_into_inp(new_plasticity_data, inp_data, plastic_start, plastic_end, 'AFRC_plasticity')
     return new_inp
 
 def convert_table_back_to_inp(plastic_data_table):
@@ -266,54 +276,17 @@ def convert_table_back_to_inp(plastic_data_table):
             i += 1
     return text_inp
 
-Titanium_plasticity_data = 'Patryk_mat_data.txt'
-hypercube_obj = qmc.LatinHypercube(d=6)
-samples = hypercube_obj.random(runs)
-
-lower_bounds = [c0_min,c1_min,c2_min,c3_min,c4_min,c5_min]
-upper_bounds = [c0_max,c1_max,c2_max,c3_max,c4_max,c5_max]
-
-scaled_samples = qmc.scale(samples, lower_bounds, upper_bounds)
-
-starting_time = time.time()
-
-
-#results = {'power input': np.zeros(no_samples) 'coefficient of friction':np.zeros(no_samples), 'platen sample interface conductance':np.zeros(no_samples),'Force Results':np.zeros(no_samples)}
-results = {'C0':np.zeros(runs), 
-           'C1':np.zeros(runs), 
-           'C2':np.zeros(runs), 
-           'C3':np.zeros(runs), 
-           'C4':np.zeros(runs),
-           'C5':np.zeros(runs),
-           'Force Results1':np.zeros(runs), 
-           'Force Results2':np.zeros(runs),
-           'PEEQ Results':np.zeros(runs), 
-           'Barrelling Profile':np.zeros(runs),
-           'Temperature profile':np.zeros(runs)}
-results_df = pd.DataFrame(results)
-results_df['Force Results1'] = results_df['Force Results1'].astype(object)
-results_df['Force Results2'] = results_df['Force Results2'].astype(object)
-results_df['Barrelling Profile'] = results_df['Barrelling Profile'].astype(object)
-results_df['PEEQ Results'] = results_df['PEEQ Results'].astype(object)
-results_df['Temperature profile'] = results_df['Temperature profile'].astype(object)
-
-
-subprocess.run(['rm','sub_script_check*'])
-
-
-output_directory = ''
+list_of_material_coefficients = [results_df["C0"][index],
+                                 results_df["C1"][index],
+                                 results_df["C2"][index],
+                                 results_df["C3"][index],
+                                 results_df["C4"][index],
+                                 results_df["C5"][index]]
 original_inp_file = 'Quad_plasticity.inp'
+output_directory = ''
+friction = results_df["Friction"][index]
+conductance = [results_df["Conductance"][index], results_df["Conductance input file"][index]]
+power = results_df["Power"][index]
 generate_input_file_friction_conductance_power([friction,conductance,power], original_inp_file)
 
-for n, list_of_material_coefficients in enumerate(scaled_samples):
-    results_df.loc[n,'C0'] = list_of_material_coefficients[0]
-    results_df.loc[n,'C1'] = list_of_material_coefficients[1]
-    results_df.loc[n,'C2'] = list_of_material_coefficients[2]
-    results_df.loc[n,'C3'] = list_of_material_coefficients[3]
-    results_df.loc[n,'C4'] = list_of_material_coefficients[4]
-    results_df.loc[n,'C5'] = list_of_material_coefficients[5]
-    call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file, output_directory,n)
-    results_df.to_pickle('Quad_plasticity.pkl')
-
-
-results_df.to_pickle('Quad_plasticity.pkl')
+call_abaqus_with_new_params(list_of_material_coefficients, original_inp_file, output_directory,index)
